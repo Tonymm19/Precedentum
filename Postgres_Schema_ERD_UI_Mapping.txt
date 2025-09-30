@@ -1,0 +1,170 @@
+District Court Legal Application – Field-Level Postgres Schema, ERD & UI Mapping
+This document provides a production-ready field-level PostgreSQL schema, an ERD-style relationship summary, and a mapping of fields to the current prototype screens (Dashboard, Cases, Deadlines, Rules Search, Judge Profiles, Alerts, Calendar, Settings).
+1) PostgreSQL Schema (DDL)
+Conventions: UUID primary keys, snake_case, timestamptz, soft-delete via deleted_at where appropriate. Enums shown as TEXT for portability (can be promoted to ENUM).
+users
+CREATE TABLE users (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   email TEXT UNIQUE NOT NULL,   full_name TEXT NOT NULL,   role TEXT NOT NULL CHECK (role IN ('admin','lawyer','paralegal','guest')),   firm TEXT,   timezone TEXT DEFAULT 'America/Chicago',   mfa_enabled BOOLEAN DEFAULT FALSE,   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),   deleted_at TIMESTAMPTZ );
+courts
+CREATE TABLE courts (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   name TEXT NOT NULL,   district TEXT,   division TEXT,   location TEXT,   timezone TEXT NOT NULL,   website_url TEXT );
+judges
+CREATE TABLE judges (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   full_name TEXT NOT NULL,   court_id UUID REFERENCES courts(id) ON DELETE SET NULL,   courtroom TEXT,   chambers_url TEXT,   contact_email TEXT,   contact_phone TEXT ); CREATE INDEX idx_judges_court ON judges(court_id);
+judge_procedures
+CREATE TABLE judge_procedures (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   judge_id UUID NOT NULL REFERENCES judges(id) ON DELETE CASCADE,   title TEXT NOT NULL,   version TEXT NOT NULL,   effective_date DATE,   expiry_date DATE,   content_text TEXT,   filing_format JSONB,      -- e.g., single vs multi-PDF, naming   exhibit_labeling JSONB,   motion_practice JSONB,   filing_cutoff_time TIME,   hearing_windows JSONB,    -- e.g., available weekdays/times   created_at TIMESTAMPTZ NOT NULL DEFAULT now() ); CREATE INDEX idx_proc_judge ON judge_procedures(judge_id);
+cases
+CREATE TABLE cases (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_number TEXT,         -- official CM/ECF number   caption TEXT NOT NULL,    -- case title   practice_area TEXT,   court_id UUID REFERENCES courts(id) ON DELETE SET NULL,   filing_date DATE,   status TEXT CHECK (status IN ('open','stayed','closed','appeal','other')),   stage TEXT,               -- pleadings, discovery, trial, etc.   lead_attorney_id UUID REFERENCES users(id) ON DELETE SET NULL,   confidentiality_level TEXT,   legal_hold BOOLEAN DEFAULT FALSE,   timezone TEXT NOT NULL,   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),   deleted_at TIMESTAMPTZ ); CREATE INDEX idx_cases_court ON cases(court_id); CREATE INDEX idx_cases_lead ON cases(lead_attorney_id);
+case_team
+CREATE TABLE case_team (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,   role TEXT NOT NULL,       -- e.g., owner, contributor, reviewer   added_at TIMESTAMPTZ NOT NULL DEFAULT now(),   UNIQUE (case_id, user_id) );
+contacts
+CREATE TABLE contacts (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   type TEXT CHECK (type IN ('person','organization')) NOT NULL,   first_name TEXT,   last_name TEXT,   org_name TEXT,   bar_number TEXT,   email TEXT,   phone TEXT,   address JSONB,   preferred_contact_method TEXT,   availability JSONB );
+case_contacts
+CREATE TABLE case_contacts (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,   role TEXT NOT NULL,  -- opposing_counsel, client, expert, vendor, reporter, other   UNIQUE (case_id, contact_id, role) ); CREATE INDEX idx_case_contacts_case ON case_contacts(case_id);
+documents
+CREATE TABLE documents (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID REFERENCES cases(id) ON DELETE SET NULL,   source TEXT CHECK (source IN ('upload','pacer','web','judge_procedure','rule')),   url TEXT,   file_hash TEXT,   mime_type TEXT,   page_count INT,   ocr_status TEXT CHECK (ocr_status IN ('pending','complete','failed')) DEFAULT 'pending',   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now() );
+doc_chunks
+CREATE TABLE doc_chunks (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,   chunk_index INT NOT NULL,   start_offset INT,   end_offset INT,   heading TEXT,   embedding_id UUID,    -- optionally reference pgvector table or external   model_version TEXT,   UNIQUE (document_id, chunk_index) ); CREATE INDEX idx_chunks_doc ON doc_chunks(document_id);
+rules
+CREATE TABLE rules (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   source_type TEXT CHECK (source_type IN ('FRCP','LocalRule','JudgeProcedure','ECFManual','StandingOrder')) NOT NULL,   citation TEXT,   jurisdiction TEXT,   version TEXT,   effective_date DATE,   superseded_by UUID REFERENCES rules(id),   text TEXT,   url TEXT,   created_at TIMESTAMPTZ NOT NULL DEFAULT now() );
+rule_crossrefs
+CREATE TABLE rule_crossrefs (   from_rule_id UUID NOT NULL REFERENCES rules(id) ON DELETE CASCADE,   to_rule_id UUID NOT NULL REFERENCES rules(id) ON DELETE CASCADE,   PRIMARY KEY (from_rule_id, to_rule_id) );
+deadlines
+CREATE TABLE deadlines (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   trigger_type TEXT CHECK (trigger_type IN ('rule','court_order','user')) NOT NULL,   trigger_source_type TEXT,    -- 'docket','rule','note'   trigger_source_id UUID,   basis TEXT CHECK (basis IN ('calendar_days','business_days')) NOT NULL,   holiday_calendar_id UUID,   due_at TIMESTAMPTZ NOT NULL,   timezone TEXT NOT NULL,   owner_id UUID REFERENCES users(id) ON DELETE SET NULL,   priority SMALLINT DEFAULT 3, -- 1=high 5=low   status TEXT CHECK (status IN ('open','snoozed','done','missed')) DEFAULT 'open',   snooze_until TIMESTAMPTZ,   extension_notes TEXT,   outcome TEXT,                -- met / missed / extended summary   computation_rationale TEXT,   created_by UUID REFERENCES users(id),   updated_by UUID REFERENCES users(id),   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),   updated_at TIMESTAMPTZ NOT NULL DEFAULT now() ); CREATE INDEX idx_deadlines_case_due ON deadlines(case_id, due_at);
+deadline_reminders
+CREATE TABLE deadline_reminders (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   deadline_id UUID NOT NULL REFERENCES deadlines(id) ON DELETE CASCADE,   notify_at TIMESTAMPTZ NOT NULL,   channel TEXT CHECK (channel IN ('in_app','email','sms','push')) NOT NULL,   sent BOOLEAN DEFAULT FALSE,   sent_at TIMESTAMPTZ ); CREATE INDEX idx_reminders_when ON deadline_reminders(notify_at, sent);
+deadline_dependencies
+CREATE TABLE deadline_dependencies (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   predecessor_id UUID NOT NULL REFERENCES deadlines(id) ON DELETE CASCADE,   successor_id UUID NOT NULL REFERENCES deadlines(id) ON DELETE CASCADE,   type TEXT,  -- blocks, relates_to   UNIQUE (predecessor_id, successor_id) );
+docket_entries
+CREATE TABLE docket_entries (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   entry_no INT,   entered_at TIMESTAMPTZ,   entry_type TEXT,   description TEXT,   ecf_link TEXT,   pdf_document_id UUID REFERENCES documents(id) ); CREATE INDEX idx_docket_case ON docket_entries(case_id);
+filings
+CREATE TABLE filings (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   filing_type TEXT,   ecf_category TEXT,   packaged_as TEXT CHECK (packaged_as IN ('single_pdf','multi_pdf')),   served_at TIMESTAMPTZ,   service_method TEXT,   notes TEXT );
+filing_exhibits
+CREATE TABLE filing_exhibits (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   filing_id UUID NOT NULL REFERENCES filings(id) ON DELETE CASCADE,   label TEXT NOT NULL,          -- Exhibit A, B, etc.   document_id UUID REFERENCES documents(id) ); CREATE INDEX idx_exhibits_filing ON filing_exhibits(filing_id);
+service_list
+CREATE TABLE service_list (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   filing_id UUID NOT NULL REFERENCES filings(id) ON DELETE CASCADE,   contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE ); CREATE UNIQUE INDEX ux_service_pair ON service_list(filing_id, contact_id);
+hearings
+CREATE TABLE hearings (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,   hearing_type TEXT,   starts_at TIMESTAMPTZ NOT NULL,   ends_at TIMESTAMPTZ,   location TEXT,   virtual_link TEXT,   requirements TEXT,   outcome TEXT ); CREATE INDEX idx_hearings_case_start ON hearings(case_id, starts_at);
+alerts
+CREATE TABLE alerts (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID REFERENCES cases(id) ON DELETE SET NULL,   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,   type TEXT,   severity TEXT,        -- info/warn/critical   title TEXT,   body TEXT,   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),   read_at TIMESTAMPTZ ); CREATE INDEX idx_alerts_user_created ON alerts(user_id, created_at DESC);
+calendar_events
+CREATE TABLE calendar_events (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   case_id UUID REFERENCES cases(id) ON DELETE SET NULL,   external_provider TEXT CHECK (external_provider IN ('google','m365','ical')),   external_event_id TEXT,   starts_at TIMESTAMPTZ NOT NULL,   ends_at TIMESTAMPTZ,   sync_state TEXT,   last_synced_at TIMESTAMPTZ ); CREATE INDEX idx_cal_events_case_start ON calendar_events(case_id, starts_at);
+holiday_calendars
+CREATE TABLE holiday_calendars (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   name TEXT NOT NULL,   jurisdiction TEXT,   timezone TEXT NOT NULL,   source_url TEXT );
+holidays
+CREATE TABLE holidays (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   calendar_id UUID NOT NULL REFERENCES holiday_calendars(id) ON DELETE CASCADE,   date DATE NOT NULL,   name TEXT NOT NULL,   UNIQUE (calendar_id, date) );
+user_notification_subscriptions
+CREATE TABLE user_notification_subscriptions (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,   case_id UUID REFERENCES cases(id) ON DELETE CASCADE,   type TEXT NOT NULL,      -- deadlines, docket, hearings, all   UNIQUE (user_id, COALESCE(case_id, '00000000-0000-0000-0000-000000000000')::uuid, type) );
+notifications_log
+CREATE TABLE notifications_log (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,   channel TEXT CHECK (channel IN ('in_app','email','sms','push')) NOT NULL,   payload JSONB,   delivered_at TIMESTAMPTZ,   status TEXT CHECK (status IN ('queued','sent','failed')) NOT NULL DEFAULT 'queued' );
+audit_log
+CREATE TABLE audit_log (   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),   actor_user_id UUID REFERENCES users(id),   entity_table TEXT NOT NULL,   entity_id UUID NOT NULL,   action TEXT NOT NULL,        -- create/update/delete/compute   before JSONB,   after JSONB,   created_at TIMESTAMPTZ NOT NULL DEFAULT now() ); CREATE INDEX idx_audit_entity ON audit_log(entity_table, entity_id);
+2) ERD – Relationship Summary
+- courts 1─* judges; courts 1─* cases
+- judges 1─* judge_procedures
+- cases 1─* case_team (to users); users *─* cases via case_team
+- cases 1─* case_contacts (to contacts) with role; contacts reused across cases
+- cases 1─* documents; documents 1─* doc_chunks
+- rules *─* rules via rule_crossrefs (self-referencing)
+- cases 1─* deadlines; deadlines 1─* deadline_reminders; deadlines *─* deadlines via deadline_dependencies
+- cases 1─* docket_entries; cases 1─* filings; filings 1─* filing_exhibits; filings *─* contacts via service_list
+- cases 1─* hearings; cases 1─* calendar_events
+- users 1─* alerts; users 1─* notifications_log; users 1─* user_notification_subscriptions
+- holiday_calendars 1─* holidays; deadlines ─> holiday_calendars (optional)
+- audit_log references any entity by (entity_table, entity_id)
+3) Field-to-UI Screen Mapping
+Dashboard
+Screen / Component
+Entity/Table
+Key Fields
+Dashboard
+cases
+status, stage, filing_date
+Dashboard
+deadlines
+due_at, status, priority, case_id
+Dashboard
+deadlines + alerts
+priority=1, status!='done' ; severity='critical'
+Dashboard
+judges
+full_name, court_id
+Cases
+Screen / Component
+Entity/Table
+Key Fields
+Cases List
+cases
+caption, case_number, status, court_id, lead_attorney_id
+Case Detail: Parties
+case_contacts + contacts
+role, first_name/last_name/org_name, bar_number, email, phone
+Case Detail: Team
+case_team + users
+role, full_name, email
+Case Detail: Docket
+docket_entries
+entry_no, entered_at, entry_type, description
+Case Detail: Filings
+filings + filing_exhibits
+filing_type, ecf_category, packaged_as, exhibits
+Case Detail: Documents
+documents
+source, url, mime_type, ocr_status
+Deadline Tracker
+Screen / Component
+Entity/Table
+Key Fields
+Deadlines Table
+deadlines
+trigger_type, due_at, owner_id, status, priority
+Reminders
+deadline_reminders
+notify_at, channel, sent
+Dependencies
+deadline_dependencies
+predecessor_id, successor_id, type
+Rules & Research
+Screen / Component
+Entity/Table
+Key Fields
+Rules Search
+rules
+source_type, citation, jurisdiction, version, text
+Related Rules
+rule_crossrefs
+from_rule_id, to_rule_id
+Q&A Sources
+doc_chunks
+document_id, heading, model_version
+Judge Profiles
+Screen / Component
+Entity/Table
+Key Fields
+Judges List
+judges
+full_name, court_id, courtroom
+Judge Profile
+judge_procedures
+title, version, effective_date, filing_format, motion_practice
+Alerts
+Screen / Component
+Entity/Table
+Key Fields
+Alerts Center
+alerts
+type, severity, title, created_at, read_at
+Calendar
+Screen / Component
+Entity/Table
+Key Fields
+Calendar
+calendar_events + hearings + deadlines
+starts_at/ends_at; hearing_type; due_at (rendered as all-day)
+Settings
+Screen / Component
+Entity/Table
+Key Fields
+User Settings
+users
+full_name, email, timezone, role
+Notifications Preferences
+user_notification_subscriptions
+type, case_id

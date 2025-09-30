@@ -1,0 +1,54 @@
+Extended Data Model for District Court Legal Application
+This document expands on the initial list of data points provided, filling in additional entities and attributes required for a production-ready legal application. Each section below lists the recommended data items, with (★) indicating one-to-many relationships.
+Case / Matter
+- Case IDs: internal, official CM/ECF; caption/title; practice area; filing date; status (enum), stage.
+- Court: district/division, courthouse location, time zone.
+- Parties (★): party type (person/org), role (plaintiff/defendant/third-party), service addresses (★).
+- Our team (★): matter owner, team members/roles; opposing counsel (★) with firm, bar no., contacts.
+- Related/companion cases (★); legal hold flag; confidentiality level; tags/keywords (★).
+- Notes/strategy log (★); attachments (★) with source, hash, OCR status.
+Judge Profile
+- Judge ID; name; courtroom; chambers URL; contact channel.
+- Standing orders/procedures (versioned) (★) with effective/expiry.
+- Preferences: filing format (single vs multi-PDF), exhibit labeling, motion practice, hearing scheduling windows, filing cutoff times.
+- Substitute/associate judges (★); holiday calendar override.
+Rules / Authorities
+- Type (FRCP, Local Rule, Judge Procedure, ECF manual, Standing Order).
+- Citation; jurisdiction/scope; version; effective date; superseded-by link.
+- Full text + structured clauses (★); attachments/URLs; cross-references (★).
+Deadlines & Tasks
+- Trigger type (rule, court order, user); trigger source link (docket/rule id).
+- Computation basis (calendar vs business days), court holiday calendar, time zone.
+- Due date/time; reminders (★) [when, channel]; predecessors/blocked-by (★).
+- Assignee/owner; priority; status; snooze/extension details; outcome (met/missed).
+- Computation rationale (stored text) for audit; created/updated by; timestamps.
+Docket & Filings
+- Docket entries (★): entry no., date/time, type, description, PDFs/links.
+- Filings (★): document type, ECF category, e-file packaging (single/multi-PDF), exhibit index (★), service list (★), served date/time/method.
+Hearings / Events
+- Hearing type; date/time; location or virtual link; appearance requirements; time limits.
+- Outcome (granted/denied/continued); post-hearing tasks (★).
+Contacts
+- Opposing counsel (★): name, firm, phones/emails, bar nos., role per case.
+- Client contacts (★), experts (★), vendors/court reporters (★).
+- Preferred contact method; availability windows (optional).
+Users / AuthZ
+- Users: role (admin/lawyer/paralegal/guest), team/firm, MFA/SSO ids.
+- Case-level permissions (view/edit/deadlines/filings granularity); audit trail.
+Alerts & Notifications
+- Subscriptions per user/case (★); channel (in-app/email/SMS/push).
+- Templates (★); escalation rules; delivery logs (★) with status.
+Calendar & Integrations
+- External calendar event ids (Google/M365) (★), last sync, sync state.
+- Email integration metadata (optional): message ids for auto-file.
+- PACER/CM-ECF credentials (vaulted); rate/billing meters; API rate limits.
+Ingestion / ML (for RAG & search)
+- Corpus documents (★): source, URL, version, file hash, mime, pages, OCR’d.
+- Chunks (★): offsets, headings, embedding id, model version.
+- Retrieval runs (★): query, top-k, scores, selected spans (for citations/audit).
+Audit / Compliance / Ops
+- Global audit log (★): who/what/when/before/after; soft-delete (`deleted_at`).
+- Retention policies; export packages; data residency (tenant).
+- Court holiday calendars (★); feature flags; health/error logs; SLAs.
+Normalization Tips
+- Version Rules/Procedures and reference the specific version from each Deadline for defensibility. - Store time zone on all time-based records; compute using the court’s locale. - Model Party, Attorney, Contact separately; relate via role tables. - Keep filing recipes (judge-specific packaging rules) as structured objects, not free text.
