@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -6,11 +6,19 @@ import Dashboard from './components/Dashboard';
 import RulesSearch from './components/RulesSearch';
 import JudgeProfiles from './components/JudgeProfiles';
 import DeadlineTracker from './components/DeadlineTracker';
+import LoginScreen from './components/LoginScreen';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DataProvider } from './contexts/DataContext';
 
 function AppContent() {
   const { isDarkMode } = useTheme();
+  const { token } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  if (!token) {
+    return <LoginScreen />;
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -144,7 +152,11 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <AuthProvider>
+        <DataProvider>
+          <AppContent />
+        </DataProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

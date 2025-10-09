@@ -4,13 +4,12 @@ import {
   Calendar, 
   Search, 
   BookOpen, 
-  Users, 
   Settings, 
   FileText,
   AlertTriangle,
   Clock,
   Gavel
-} from 'lucide-react';
+} from '../lucide-stub';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface SidebarProps {

@@ -1,0 +1,74 @@
+Precedentum Production Smoke Test Checklist
+========================================= 
+
+Environment Prep
+----------------
+1. Confirm stack is running via `docker-compose -f docker-compose.prod.yml ps` (backend/frontend/postgres/redis up).
+2. Verify `http://localhost:3000` loads without console errors.
+3. Keep demo credentials handy (demo.lawyer@example.com / changeme123).
+
+Authentication & Session
+------------------------
+4. Log in with the demo credentials; expect redirect to Dashboard with populated metrics.
+5. Refresh the page to confirm session persistence.
+6. Log out (top-right menu) and ensure redirect to login screen; log back in.
+
+Dashboard Overview
+------------------
+7. Validate metrics cards show counts matching seeded data (Upcoming, Snoozed, Completed, Overdue).
+8. Hover over charts/badges to confirm tooltips render correctly and values align with list views.
+9. Click snackbar/alerts (if present) to ensure dismissal works.
+
+Deadlines Tab
+-------------
+10. Verify deadline table populates with seeded entries and pagination works.
+11. Use status filter (e.g., Upcoming) and confirm table updates accordingly.
+12. Apply case and owner filters; clear filters to reset results.
+13. Use column sort (Due Date) and confirm ascending/descending ordering.
+
+Deadline CRUD
+-------------
+14. Create a new deadline via “New Deadline” modal (set future due date) and ensure it appears in the table with correct status/priority.
+15. Open the new deadline’s “Edit” modal; change owner/priority and save.
+16. Snooze the deadline by setting a future “Snooze Until” date; confirm status updates to Snoozed and snooze badge appears.
+17. Mark the deadline complete; confirm it moves to Completed tab/filter.
+18. Reopen the deadline and reactivate it (set status back to Upcoming) to confirm transitions work both directions.
+
+Reminders Workflow
+------------------
+19. From a deadline row, open the “Reminders” modal; review existing reminders list.
+20. Add a new reminder (choose email method, set near-term notify time); verify counter badge increments.
+21. Delete the reminder and ensure the badge decrements and modal closes cleanly.
+
+Bulk Actions & Audit Log
+------------------------
+22. Select multiple deadlines via checkboxes; use “Bulk Complete” and confirm selected rows move to Completed.
+23. Open the “Audit Log” modal for a modified deadline; verify before/after snapshots reflect edits and include acting user info.
+
+Rules & Judge Profiles
+----------------------
+24. Navigate to “Rules” tab; issue a search query (e.g., “filing”) and verify results show rule text plus source metadata.
+25. Filter rules by judge or category if options exist; confirm response latency is acceptable (<2s target).
+26. Navigate to “Judge Profiles”; ensure each profile loads with standing orders and preferences.
+27. Follow external links (if any) to confirm they open in a new tab.
+
+System Feedback & Resilience
+----------------------------
+28. Trigger an intentional validation error (e.g., create deadline with past due date) and ensure form-level error message appears.
+29. Disconnect network temporarily (optional) to observe frontend/offline behavior; confirm user-friendly error state.
+30. Check browser dev tools Console for uncaught exceptions throughout navigation.
+
+Data Integrity
+--------------
+31. In a new tab, open `http://localhost:8000/admin/` (create superuser first if not done); confirm new deadlines/reminders exist in Django admin.
+32. Ensure audit log entries exist for create/edit/complete actions in admin interface.
+
+Cleanup
+-------
+33. Remove any test deadlines/reminders created during the session or reset via `seed_demo_data` if desired.
+34. Log out of the application and shut down stack with `docker-compose -f docker-compose.prod.yml down` when finished.
+
+Notes
+-----
+- Record actual vs. expected results for each step and capture screenshots of anomalies.
+- Re-run failing steps after addressing issues to confirm fixes.

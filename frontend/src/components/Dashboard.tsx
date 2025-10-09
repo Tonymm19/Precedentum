@@ -1,55 +1,55 @@
 import React from 'react';
-import { Calendar, Clock, AlertTriangle, CheckCircle, TrendingUp, FileText, Bell } from 'lucide-react';
-import { cases, deadlines, alerts, judges } from '../data/mockData';
+import { Calendar, Clock, AlertTriangle, CheckCircle, TrendingUp, FileText, Bell } from '../lucide-stub';
 import { useTheme } from '../contexts/ThemeContext';
+import { useData } from '../contexts/DataContext';
 import ReminderModal, { ReminderData } from './ReminderModal';
 
 const Dashboard: React.FC = () => {
   const { isDarkMode } = useTheme();
+  const { cases, deadlines, judges, isLoading, error } = useData();
   const [showReminderModal, setShowReminderModal] = React.useState(false);
-  const [reminders, setReminders] = React.useState<ReminderData[]>([]);
 
   const upcomingDeadlines = deadlines
-    .filter(d => !d.completed)
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    .filter((deadline) => new Date(deadline.due_at).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime())
     .slice(0, 5);
 
-  const urgentDeadlines = deadlines.filter(d => 
-    !d.completed && 
-    new Date(d.dueDate).getTime() - new Date().getTime() < 3 * 24 * 60 * 60 * 1000
-  );
+  const urgentDeadlines = deadlines.filter((deadline) => {
+    const dueTime = new Date(deadline.due_at).getTime();
+    const diff = dueTime - Date.now();
+    return diff >= 0 && diff < 3 * 24 * 60 * 60 * 1000;
+  });
 
-  const activeCases = cases.filter(c => c.status === 'Active');
-  const unreadAlerts = alerts.filter(a => !a.read);
+  const openCases = cases.filter((caseItem) => caseItem.status === 'open');
 
   const stats = [
     {
-      title: 'Active Cases',
-      value: activeCases.length,
+      title: 'Open Cases',
+      value: openCases.length,
       icon: FileText,
       color: 'blue',
-      change: '+2 this week'
+      change: 'Open matters'
     },
     {
       title: 'Upcoming Deadlines',
       value: upcomingDeadlines.length,
       icon: Clock,
       color: 'amber',
-      change: '3 this week'
+      change: 'Within 30 days'
     },
     {
       title: 'Urgent Items',
       value: urgentDeadlines.length,
       icon: AlertTriangle,
       color: 'red',
-      change: 'Action required'
+      change: 'Due in ≤ 3 days'
     },
     {
       title: 'Judges Tracked',
       value: judges.length,
       icon: CheckCircle,
       color: 'green',
-      change: 'All updated'
+      change: 'Profile records'
     }
   ];
 
@@ -63,17 +63,26 @@ const Dashboard: React.FC = () => {
     return colors[color as keyof typeof colors] || colors.blue;
   };
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority: 'High' | 'Medium' | 'Low') => {
     switch (priority) {
-      case 'High': return 'text-red-600 bg-red-100';
-      case 'Medium': return 'text-amber-600 bg-amber-100';
-      case 'Low': return 'text-green-600 bg-green-100';
+      case 'High':
+        return 'text-red-600 bg-red-100';
+      case 'Medium':
+        return 'text-amber-600 bg-amber-100';
+      case 'Low':
+        return 'text-green-600 bg-green-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+  const getPriorityLabel = (priority: number) => {
+    if (priority <= 2) return 'High';
+    if (priority === 3) return 'Medium';
+    return 'Low';
+  };
+
+  const formatDate = (isoDate: string) => {
+    const date = new Date(isoDate);
     const today = new Date();
     const diffTime = date.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -87,11 +96,7 @@ const Dashboard: React.FC = () => {
   };
 
   const handleSaveReminder = (reminder: ReminderData) => {
-    const newReminder = {
-      ...reminder,
-      id: Date.now().toString()
-    };
-    setReminders(prev => [...prev, newReminder]);
+    console.log('Manual reminder saved', reminder);
   };
 
   return (
@@ -103,7 +108,7 @@ const Dashboard: React.FC = () => {
               Dashboard
             </h1>
             <p className={`mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Welcome back, Sarah. Here's your federal court compliance overview.
+              Welcome back! Here's your federal court compliance overview.
             </p>
           </div>
           <button
@@ -118,6 +123,16 @@ const Dashboard: React.FC = () => {
             <span>Set Reminder</span>
           </button>
         </div>
+        {isLoading && (
+          <p className={`mt-4 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            Loading the latest cases, deadlines, and judge data…
+          </p>
+        )}
+        {error && (
+          <p className={`mt-2 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>
+            {error}
+          </p>
+        )}
       </div>
 
       {/* Stats Grid */}
@@ -174,41 +189,43 @@ const Dashboard: React.FC = () => {
           <div className="p-6">
             <div className="space-y-4">
               {upcomingDeadlines.map((deadline) => {
-                const case_ = cases.find(c => c.id === deadline.caseId);
-                const judge = judges.find(j => j.id === case_?.judgeId);
+                const caseTitle = deadline.case_caption ?? cases.find((caseItem) => caseItem.id === deadline.case)?.caption ?? 'Untitled case';
                 return (
                   <div key={deadline.id} className={`flex items-center space-x-4 p-4 rounded-lg ${
                     isDarkMode ? 'bg-gray-700' : 'bg-gray-50'
                   }`}>
                     <div className="flex-shrink-0">
                       <Clock className={`h-5 w-5 ${
-                        deadline.priority === 'High' ? 'text-red-500' : 
-                        deadline.priority === 'Medium' ? 'text-amber-500' : 'text-green-500'
+                        getPriorityLabel(deadline.priority) === 'High' ? 'text-red-500'
+                        : getPriorityLabel(deadline.priority) === 'Medium' ? 'text-amber-500'
+                        : 'text-green-500'
                       }`} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${
                         isDarkMode ? 'text-white' : 'text-gray-900'
                       }`}>
-                        {deadline.description}
+                        {deadline.trigger_source_type ? `${deadline.trigger_source_type.replace(/_/g, ' ')}` : 'Deadline'}
                       </p>
                       <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        {case_?.title}
-                      </p>
-                      <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {judge?.name}
+                        {caseTitle}
                       </p>
                     </div>
                     <div className="flex-shrink-0">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        getPriorityColor(deadline.priority)
+                        getPriorityColor(getPriorityLabel(deadline.priority))
                       }`}>
-                        {formatDate(deadline.dueDate)}
+                        {formatDate(deadline.due_at)}
                       </span>
                     </div>
                   </div>
                 );
               })}
+              {upcomingDeadlines.length === 0 && (
+                <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
+                  No upcoming deadlines found.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -224,41 +241,15 @@ const Dashboard: React.FC = () => {
               <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 Recent Alerts
               </h2>
-              <span className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                {unreadAlerts.length} unread
+              <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                Coming soon
               </span>
             </div>
           </div>
           <div className="p-6">
-            <div className="space-y-4">
-              {alerts.slice(0, 5).map((alert) => (
-                <div key={alert.id} className={`flex items-start space-x-4 p-4 rounded-lg transition-colors ${
-                  alert.read 
-                    ? isDarkMode ? 'bg-gray-700' : 'bg-gray-50'
-                    : isDarkMode 
-                    ? 'bg-blue-900 border-l-4 border-blue-400' 
-                    : 'bg-blue-50 border-l-4 border-blue-500'
-                }`}>
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className={`h-5 w-5 ${
-                      alert.priority === 'High' ? 'text-red-500' :
-                      alert.priority === 'Medium' ? 'text-amber-500' : 'text-green-500'
-                    }`} />
-                  </div>
-                  <div className="flex-1">
-                    <p className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {alert.title}
-                    </p>
-                    <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      {alert.message}
-                    </p>
-                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {new Date(alert.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
+              Automated alerting is under development. Once enabled, deadline reminders and rule updates will populate here.
+            </p>
           </div>
         </div>
       </div>

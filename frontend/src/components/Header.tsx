@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Bell, Search, Menu, User, Settings, LogOut, Moon, Sun } from 'lucide-react';
-import { Alert } from '../types';
-import { alerts } from '../data/mockData';
+import { Bell, Search, Menu, User, Settings, LogOut, Moon, Sun, RefreshCcw } from '../lucide-stub';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useData } from '../contexts/DataContext';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -10,11 +10,16 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const { isDarkMode, toggleDarkMode } = useTheme();
+  const { logout, userEmail } = useAuth();
+  const { refresh, isLoading, error } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
-  const unreadAlerts = alerts.filter(alert => !alert.read);
+  const handleLogout = () => {
+    logout();
+    setShowProfile(false);
+  };
 
   return (
     <header className={`border-b px-4 py-3 ${
@@ -96,11 +101,6 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
               }`}
             >
               <Bell className={`h-5 w-5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
-              {unreadAlerts.length > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                  {unreadAlerts.length}
-                </span>
-              )}
             </button>
 
             {showNotifications && (
@@ -114,41 +114,17 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     Notifications
                   </h3>
                 </div>
-                <div className="max-h-96 overflow-y-auto">
-                  {alerts.slice(0, 5).map((alert) => (
-                    <div
-                      key={alert.id}
-                      className={`p-4 border-b transition-colors ${
-                        isDarkMode 
-                          ? `border-gray-700 hover:bg-gray-700 ${!alert.read ? 'bg-gray-700' : ''}` 
-                          : `border-gray-100 hover:bg-gray-50 ${!alert.read ? 'bg-blue-50' : ''}`
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3">
-                        <div className={`w-2 h-2 rounded-full mt-2 ${
-                          alert.priority === 'High' ? 'bg-red-500' :
-                          alert.priority === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'
-                        }`} />
-                        <div className="flex-1">
-                          <p className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {alert.title}
-                          </p>
-                          <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                            {alert.message}
-                          </p>
-                          <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            {new Date(alert.timestamp).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div className={`p-6 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  Notifications from automated monitors will appear here once configured.
                 </div>
                 <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <button className={`text-sm font-medium ${
-                    isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'
-                  }`}>
-                    View all notifications
+                  <button
+                    onClick={() => setShowNotifications(false)}
+                    className={`text-sm font-medium ${
+                      isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'
+                    }`}
+                  >
+                    Close
                   </button>
                 </div>
               </div>
@@ -183,13 +159,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
               }`}>
                 <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
                   <p className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                    Sarah Chen
+                    {userEmail ?? 'Authenticated user'}
                   </p>
                   <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Associate Attorney
-                  </p>
-                  <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Morrison & Foerster LLP
+                    Signed in via token auth
                   </p>
                 </div>
                 <div className="py-2">
@@ -201,11 +174,14 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     <Settings className="h-4 w-4" />
                     <span>Settings</span>
                   </button>
-                  <button className={`w-full text-left px-4 py-2 text-sm flex items-center space-x-2 transition-colors ${
-                    isDarkMode 
-                      ? 'text-gray-300 hover:bg-gray-700' 
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}>
+                  <button
+                    onClick={handleLogout}
+                    className={`w-full text-left px-4 py-2 text-sm flex items-center space-x-2 transition-colors ${
+                      isDarkMode 
+                        ? 'text-gray-300 hover:bg-gray-700' 
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
                     <LogOut className="h-4 w-4" />
                     <span>Sign out</span>
                   </button>
@@ -213,6 +189,18 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
               </div>
             )}
           </div>
+
+          <button
+            onClick={refresh}
+            className={`hidden md:flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
+            disabled={isLoading}
+            title="Refresh data from API"
+          >
+            <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>{isLoading ? 'Refreshing…' : 'Refresh'}</span>
+          </button>
         </div>
       </div>
 
@@ -234,6 +222,11 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
             }`}
           />
         </div>
+        {error && (
+          <div className={`mt-3 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>
+            {error}
+          </div>
+        )}
       </div>
     </header>
   );

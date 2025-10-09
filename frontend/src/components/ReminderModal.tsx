@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { X, Clock, Calendar, Bell, AlertTriangle, Mail, MessageSquare } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Bell, Mail, MessageSquare } from '../lucide-stub';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface ReminderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (reminder: ReminderData) => void;
+  onSave: (reminder: ReminderData) => Promise<void> | void;
   initialData?: Partial<ReminderData>;
 }
 
@@ -23,16 +23,28 @@ export interface ReminderData {
 
 const ReminderModal: React.FC<ReminderModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
   const { isDarkMode } = useTheme();
-  const [formData, setFormData] = useState<ReminderData>({
-    title: initialData?.title || '',
-    description: initialData?.description || '',
-    dueDate: initialData?.dueDate || '',
-    reminderTimes: initialData?.reminderTimes || ['1 day'],
-    priority: initialData?.priority || 'Medium',
-    notificationMethods: initialData?.notificationMethods || ['email', 'push'],
+  const buildInitialState = (): ReminderData => ({
+    title: initialData?.title ?? '',
+    description: initialData?.description ?? '',
+    dueDate: initialData?.dueDate ?? '',
+    reminderTimes: initialData?.reminderTimes ?? ['1 day'],
+    priority: initialData?.priority ?? 'Medium',
+    notificationMethods: initialData?.notificationMethods ?? ['email', 'push'],
     caseId: initialData?.caseId,
     deadlineId: initialData?.deadlineId,
   });
+
+  const [formData, setFormData] = useState<ReminderData>(buildInitialState);
+  const [isSaving, setIsSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    setFormData(buildInitialState());
+    setSubmitError(null);
+  }, [initialData, isOpen]);
 
   const reminderOptions = [
     '15 minutes',
@@ -48,10 +60,19 @@ const ReminderModal: React.FC<ReminderModalProps> = ({ isOpen, onClose, onSave, 
     '2 weeks'
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
-    onClose();
+    setSubmitError(null);
+    setIsSaving(true);
+    try {
+      await onSave(formData);
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save reminder.';
+      setSubmitError(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const toggleReminderTime = (time: string) => {
@@ -254,6 +275,12 @@ const ReminderModal: React.FC<ReminderModalProps> = ({ isOpen, onClose, onSave, 
             </div>
           </div>
 
+          {submitError && (
+            <div className={`p-3 rounded-lg text-sm ${isDarkMode ? 'bg-red-900/30 text-red-200' : 'bg-red-50 text-red-700'}`}>
+              {submitError}
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 pt-4">
             <button
@@ -269,9 +296,14 @@ const ReminderModal: React.FC<ReminderModalProps> = ({ isOpen, onClose, onSave, 
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              disabled={isSaving}
+              className={`px-4 py-2 rounded-lg font-medium focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-white ${
+                isSaving
+                  ? 'bg-blue-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
-              Schedule Reminder
+              {isSaving ? 'Saving…' : 'Schedule Reminder'}
             </button>
           </div>
         </form>

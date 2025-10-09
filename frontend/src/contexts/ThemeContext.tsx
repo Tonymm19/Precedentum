@@ -16,6 +16,7 @@ export const useTheme = () => {
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  console.log('ThemeProvider render start', React === (window as any).__reactModule);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     // Check for saved preference or default to system preference
     const saved = localStorage.getItem('darkMode');
